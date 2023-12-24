@@ -1,0 +1,22 @@
+[package]
+name = "bobby-bit"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mio = { version = "0.8.10", features = ["os-poll", "net"] } # async I/O
+log = "0.4.20"                                              # logging
+anyhow = "1.0.75"                                           # error handling
+rand = "0.8.5"                                              # random number generation
+url = "2.5.0"                                               # parsing URLs
+urlencoding = "2.1.3"                                       # parsing query strings
+serde = { version = "1.0.130", features = ["derive"] }      # serialization
+serde_urlencoded = "0.7.0"                                  # parsing query strings
+serde_bencode = "0.2.4"                                     # parsing bencoded data
+serde_bytes = "0.11.12"                                     # serialization of byte arrays
+sha1 = "0.10.6"                                             # SHA-1 hashing
+byteorder = "1.5.0"                                         # byte order conversions
+base64 = "0.21.5"                                           # base64 encoding
+httparse = "1.8.0"                                          # parsing HTTP
