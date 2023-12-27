@@ -1,210 +1,141 @@
-use crate::peer::bitfield::BitField;
-use anyhow::Result;
-use sha1::{Digest, Sha1};
-use std::collections::{HashMap, VecDeque};
+use crate::torrent::Torrent;
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock};
+use std::io::{self, Seek, SeekFrom, Write};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
-const BLOCK_SIZE: usize = 1 << 14; // 2^14 bytes
-const PIECE_SIZE: usize = 1 << 18; // 2^18 bytes
+const BLOCK_LEN: usize = 16384;
 
-/// a block is what we request from a peer. a piece is a collection of blocks.
-#[derive(Debug)]
-struct Block {
-    /// integer specifying the zero-based piece index
-    index: usize,
-    /// integer specifying the zero-based byte offset within the piece
-    begin: usize,
-    /// integer specifying the requested length.
-    length: usize,
-}
-
-/// a piece is a collection of blocks. a piece is what we write to disk.
-#[derive(Debug)]
 struct Piece {
-    blocks: Vec<Block>,
     index: usize,
     length: usize,
-    hash: [u8; 20],
-    data: Vec<u8>,
+    blocks: Vec<Block>,
 }
 
 impl Piece {
-    fn new(index: usize, length: usize, hash: [u8; 20]) -> Piece {
-        let blocks = (0..length / BLOCK_SIZE)
-            .map(|i| Block {
-                index,
-                begin: i * BLOCK_SIZE,
-                length: BLOCK_SIZE,
-            })
-            .collect();
-        Piece {
-            blocks,
-            index,
-            length,
-            hash,
-            data: vec![0; length],
-        }
-    }
-
     fn is_complete(&self) -> bool {
-        self.data == vec![0; self.length]
-    }
-
-    fn is_valid(&self) -> bool {
-        let mut hasher = Sha1::new();
-        hasher.update(&self.data);
-        let result = hasher.finalize();
-        result[..] == self.hash[..]
-    }
-
-    // takes a vector of [u8; 20] hashes and puts them into a vector of pieces
-    fn from_hashes(hashes: Vec<[u8; 20]>, piece_length: usize) -> Vec<Piece> {
-        hashes
+        self.blocks
             .iter()
-            .enumerate()
-            .map(|(i, hash)| Piece::new(i, piece_length, *hash))
-            .collect()
+            .all(|block| block.data.len() == BLOCK_LEN)
     }
 }
 
-/// a storage is a collection of pieces that make up the whole file.
-#[derive(Debug)]
-pub struct Storage {
-    /// the path to the file we are downloading
-    path: PathBuf,
-    /// the length of the file we are downloading
-    length: usize,
-    /// the size of each piece
-    piece_length: usize,
-    /// the pieces that make up the file we are downloading
-    pieces: Vec<Piece>,
-    /// the bitfield that keeps track of which pieces we have downloaded
-    bitfield: BitField,
-    /// the number of pieces we have downloaded
-    downloaded: usize,
-    /// the number of pieces we have verified
-    verified: usize,
-    /// the channel to communicate with the peer threads
-    tx: Sender<usize>,
-    /// the channel to receive messages from the peer threads
-    rx: Receiver<usize>,
+struct Block {
+    offset: usize,
+    data: Vec<u8>,
 }
 
-impl Storage {
-    /// creates a new storage
-    pub fn new(torrent_path: &std::path::Path) -> Result<Storage> {
-        let torrent = crate::torrent::Torrent::from_path(torrent_path)?;
-        let path = PathBuf::from(torrent.info.name.clone());
-        let length = torrent.length() as usize;
-        let piece_length = torrent.piece_length() as usize;
-        let pieces = torrent.piece_hashes();
-        let pieces = Piece::from_hashes(pieces, piece_length as usize);
-        let bitfield = BitField::new(vec![0; pieces.len()]);
-        let (tx, rx) = mpsc::channel();
+pub struct Downloader {
+    torrent: Torrent,
+    file: Arc<Mutex<File>>,
+    pieces: Arc<Mutex<HashMap<usize, Piece>>>,
+}
 
-        Ok(Storage {
-            path,
-            length,
-            piece_length,
-            pieces,
-            bitfield,
-            downloaded: 0,
-            verified: 0,
-            tx,
-            rx,
+impl Downloader {
+    pub fn new(torrent_path: &str, download_path: &str) -> io::Result<Self> {
+        let torrent =
+            Torrent::from_path(Path::new(torrent_path)).expect("Failed to load torrent file");
+
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(download_path)?;
+
+        Ok(Self {
+            torrent,
+            file: Arc::new(Mutex::new(file)),
+            pieces: Arc::new(Mutex::new(HashMap::new())),
         })
     }
-    /// returns the path to the file we are downloading
-    pub fn path(&self) -> PathBuf {
-        self.path.clone()
+
+    pub fn download_piece(&self, piece_index: usize) {
+        // Simulated download logic
+        // Replace with real network-based download logic
+        let piece_length = self.torrent.piece_length() as usize;
+        let block_data = vec![0; BLOCK_LEN]; // Placeholder for block data
+        let num_blocks = (piece_length + BLOCK_LEN - 1) / BLOCK_LEN;
+
+        let blocks = (0..num_blocks)
+            .map(|i| Block {
+                offset: i * BLOCK_LEN,
+                data: block_data.clone(),
+            })
+            .collect();
+
+        let mut pieces = self.pieces.lock().unwrap();
+        pieces.insert(
+            piece_index,
+            Piece {
+                index: piece_index,
+                length: piece_length,
+                blocks,
+            },
+        );
     }
 
-    /// returns the length of the file we are downloading
-    pub fn length(&self) -> usize {
-        self.length
-    }
+    pub fn write_to_disk(&self) -> io::Result<()> {
+        let pieces = self.pieces.lock().unwrap();
+        let mut file = self.file.lock().unwrap();
 
-    /// returns the size of each piece
-    pub fn piece_length(&self) -> usize {
-        self.piece_length
-    }
-
-    /// returns the number of pieces we have downloaded
-    pub fn downloaded(&self) -> usize {
-        self.downloaded
-    }
-
-    /// returns the number of pieces we have verified
-    pub fn verified(&self) -> usize {
-        self.verified
-    }
-
-    /// returns the bitfield that keeps track of which pieces we have downloaded
-    pub fn bitfield(&self) -> &BitField {
-        &self.bitfield
-    }
-
-    /// returns the number of pieces we have left to download
-    pub fn left(&self) -> usize {
-        self.pieces.len() - self.downloaded
+        for piece in pieces.values() {
+            for block in &piece.blocks {
+                let file_offset = piece.index * self.torrent.piece_length() as usize + block.offset;
+                file.seek(SeekFrom::Start(file_offset as u64))?;
+                file.write_all(&block.data)?;
+            }
+        }
+        Ok(())
     }
 }
 
-/// the storage thread is responsible for writing the downloaded pieces to disk, and reading them back when needed. we are to download pieces as needed, and to communicate with our peer threads to orchestrate what pieces we should be requesting from which peers.
-pub fn spawn_storage(
-    path: PathBuf,
-    length: usize,
-    piece_length: usize,
-) -> Result<Arc<Mutex<Storage>>> {
-    let storage = Arc::new(Mutex::new(Storage {
-        path,
-        length,
-        piece_length,
-        pieces: Vec::new(),
-        bitfield: BitField::new(Vec::new()),
-        downloaded: 0,
-        verified: 0,
-        tx: mpsc::channel().0,
-        rx: mpsc::channel().1,
-    }));
+pub fn spawn_download_threads(
+    torrent_path: &str,
+    download_path: &str,
+    num_threads: usize,
+) -> io::Result<()> {
+    let downloader = Arc::new(Downloader::new(torrent_path, download_path)?);
 
-    let storage_clone = storage.clone();
-    thread::spawn(move || {
-        let mut storage = storage_clone.lock().unwrap();
-        loop {
-            let index = storage.rx.recv().unwrap();
-            let piece = &storage.pieces[index];
-            let mut file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&storage.path)
-                .unwrap();
-            file.seek(SeekFrom::Start(piece.index as u64 * piece.length as u64))
-                .unwrap();
-            file.write_all(&piece.data).unwrap();
-            storage.downloaded += 1;
-            if storage.downloaded == storage.pieces.len() {
-                break;
-            }
-        }
-    });
-    Ok(storage)
+    let mut handles = vec![];
+    for i in 0..num_threads {
+        let downloader_clone = Arc::clone(&downloader);
+        let handle = thread::spawn(move || {
+            downloader_clone.download_piece(i); // Each thread downloads a different piece
+            downloader_clone
+                .write_to_disk()
+                .expect("Failed to write to disk");
+        });
+        handles.push(handle);
+    }
+
+    // Join all threads
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DEBIAN_FILE;
+    use std::fs::remove_file;
 
     #[test]
-    fn test_storage_new() {
-        let storage = Storage::new(std::path::Path::new(DEBIAN_FILE)).unwrap();
+    fn test_storage_downloader() {
+        let torrent_path = "sample/debian.torrent";
+        let download_path = "sample/debian.iso";
+        let num_threads = 4;
+
+        // Remove file if it already exists
+        if Path::new(download_path).exists() {
+            remove_file(download_path).expect("Failed to remove file");
+        }
+
+        spawn_download_threads(torrent_path, download_path, num_threads)
+            .expect("Failed to spawn download threads");
+
+        assert!(Path::new(download_path).exists());
     }
 }

@@ -138,6 +138,21 @@ impl Torrent {
     pub fn name(&self) -> &str {
         &self.info.name
     }
+
+    /// Returns the announce list as a vector of SocketAddr
+    pub fn announce_list(&self) -> Vec<std::net::SocketAddr> {
+        let mut addrs = Vec::new();
+        if let Some(announce_list) = &self.announce_list {
+            for urls in announce_list {
+                for url in urls {
+                    if let Ok(addr) = url.parse::<std::net::SocketAddr>() {
+                        addrs.push(addr);
+                    }
+                }
+            }
+        }
+        addrs
+    }
 }
 
 #[cfg(test)]

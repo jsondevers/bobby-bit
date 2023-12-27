@@ -5,12 +5,12 @@ pub mod tracker {
 }
 /// Peer module contains all the logic for the peer to peer connection
 pub mod peer {
-    pub mod bitfield;
     pub mod connection;
     pub mod handshake;
-    pub mod manager;
     pub mod message;
 }
+pub mod bitfield;
+pub mod picker;
 pub mod storage;
 pub mod utils;
 

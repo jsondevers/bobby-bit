@@ -1,19 +1,12 @@
 use crate::torrent::Torrent;
 use crate::utils::generate_peer_id;
-use anyhow::{anyhow, Context, Result};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use log::{debug, error, info, trace, warn};
-use mio::net::{TcpStream, UdpSocket};
+use mio::net::UdpSocket;
 use mio::{Events, Interest, Poll, Token};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_bencode::{from_bytes, to_bytes};
-use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
-use std::thread;
+use std::net::SocketAddr;
 use std::time::Duration;
-use url::Url;
-use urlencoding::{encode, encode_binary};
 
 /// magic constant for UDP tracker protocol, see BEP 15
 const UDP_TRACKER_PROTOCOL_ID: u64 = 0x41727101980;
@@ -99,7 +92,7 @@ pub struct UdpTracker {
 }
 
 impl UdpTracker {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let mut socket = UdpSocket::bind("0.0.0.0:0".parse()?)?;
         let poll = Poll::new()?;
         let token = Token(0);
@@ -113,7 +106,7 @@ impl UdpTracker {
         })
     }
 
-    pub fn connect(&mut self, addr: SocketAddr) -> Result<ConnectResponse> {
+    pub fn connect(&mut self, addr: SocketAddr) -> anyhow::Result<ConnectResponse> {
         let mut rng = rand::thread_rng();
         let txn_id = rng.gen::<u32>();
         let mut buf = vec![0; 16];
@@ -137,7 +130,7 @@ impl UdpTracker {
             let res: ConnectResponse = from_bytes(&buf[..len])?;
 
             if res.transaction_id != txn_id {
-                return Err(anyhow!("transaction id mismatch"));
+                return Err(anyhow::anyhow!("transaction id mismatch"));
             }
 
             if res.action == 0 {
@@ -147,12 +140,16 @@ impl UdpTracker {
 
             attempts -= 1;
             if attempts == 0 {
-                return Err(anyhow!("connection failed"));
+                return Err(anyhow::anyhow!("connection failed"));
             }
         }
     }
 
-    pub fn announce(&mut self, addr: SocketAddr, torrent: &Torrent) -> Result<AnnounceResponse> {
+    pub fn announce(
+        &mut self,
+        addr: SocketAddr,
+        torrent: &Torrent,
+    ) -> anyhow::Result<AnnounceResponse> {
         let mut rng = rand::thread_rng();
         let txn_id = rng.gen::<u32>();
         let mut buf = vec![0; 98];
@@ -169,7 +166,7 @@ impl UdpTracker {
             ip_address: 0,
             key: 0,
             num_want: -1i32 as u32,
-            port: 6881,
+            port: 6969,
         };
 
         let mut bytes = to_bytes(&req)?;
@@ -186,7 +183,7 @@ impl UdpTracker {
             let res: AnnounceResponse = from_bytes(&buf[..len])?;
 
             if res.transaction_id != txn_id {
-                return Err(anyhow!("transaction id mismatch"));
+                return Err(anyhow::anyhow!("transaction id mismatch"));
             }
 
             if res.action == 1 {
@@ -195,12 +192,16 @@ impl UdpTracker {
 
             attempts -= 1;
             if attempts == 0 {
-                return Err(anyhow!("connection failed"));
+                return Err(anyhow::anyhow!("connection failed"));
             }
         }
     }
 
-    pub fn scrape(&mut self, addr: SocketAddr, torrent: &Torrent) -> Result<ScrapeResponse> {
+    pub fn scrape(
+        &mut self,
+        addr: SocketAddr,
+        torrent: &Torrent,
+    ) -> anyhow::Result<ScrapeResponse> {
         let mut rng = rand::thread_rng();
         let txn_id = rng.gen::<u32>();
         let mut buf = vec![0; 36];
@@ -225,7 +226,7 @@ impl UdpTracker {
             let res: ScrapeResponse = from_bytes(&buf[..len])?;
 
             if res.transaction_id != txn_id {
-                return Err(anyhow!("transaction id mismatch"));
+                return Err(anyhow::anyhow!("transaction id mismatch"));
             }
 
             if res.action == 2 {
@@ -234,7 +235,7 @@ impl UdpTracker {
 
             attempts -= 1;
             if attempts == 0 {
-                return Err(anyhow!("connection failed"));
+                return Err(anyhow::anyhow!("connection failed"));
             }
         }
     }
@@ -242,10 +243,8 @@ impl UdpTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
+    // use crate::DEBIAN_FILE;
 
-    #[test]
-    fn test_udp_tracker() {
-        // TODO: find a torrent with a UDP announce url
-    }
+    // TODO: find torrent file with announce list that contains UDP trackers
 }
