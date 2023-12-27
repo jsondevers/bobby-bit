@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_bencode::{from_bytes, to_bytes};
 use serde_bytes::ByteBuf;
@@ -6,25 +6,27 @@ use sha1::{Digest, Sha1};
 use std::io::Read;
 
 #[derive(Debug, Deserialize, Serialize)]
-struct Node(String, i64);
+pub struct Node(String, i64);
 
 /// a file can be single xor multi file torrent, if length is None, it's a multi file torrent, else it's a single file torrent
 #[derive(Debug, Deserialize, Serialize)]
-struct File {
+pub struct File {
     /// The length of the file in bytes (integer)
-    path: Vec<String>,
+    pub path: Vec<String>,
     /// The length of the file in bytes (integer)
-    length: i64,
+    pub length: i64,
     /// (optional) a 32-character hexadecimal string corresponding to the MD5 sum of the file. This is not used by BitTorrent at all, but it is included by some programs for greater compatibility.
     #[serde(default)]
-    md5sum: Option<String>,
+    pub md5sum: Option<String>,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
-struct Info {
+pub struct Info {
     pub name: String,
+    /// string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e. not urlencoded)
     pub pieces: ByteBuf,
+    /// number of bytes in each piece (integer)
     #[serde(rename = "piece length")]
     pub piece_length: i64,
     #[serde(default)]
@@ -44,11 +46,11 @@ struct Info {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Torrent {
-    info: Info,
+    pub info: Info,
     #[serde(default)]
     /// The announce URL of the tracker (string)
     announce: Option<String>,
-    /// (optional) this is an extention to the official specification, offering backwards-compatibility. (list of lists of strings).
+    /// (optional) this is an extension to the official specification, offering backwards-compatibility. (list of lists of strings).
     #[serde(default)]
     nodes: Option<Vec<Node>>,
     #[serde(default)]
@@ -73,11 +75,18 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+    pub fn from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
         from_bytes(bytes).context("failed to deserialize torrent")
     }
 
-    pub fn from_file(path: &str) -> Result<Self> {
+    pub fn from_file(path: &str) -> anyhow::Result<Self> {
+        let mut file = std::fs::File::open(path)?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)?;
+        Self::from_bytes(&buf)
+    }
+
+    pub fn from_path(path: &std::path::Path) -> anyhow::Result<Self> {
         let mut file = std::fs::File::open(path)?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)?;
@@ -109,6 +118,26 @@ impl Torrent {
                 .sum()
         }
     }
+
+    pub fn piece_length(&self) -> i64 {
+        self.info.piece_length
+    }
+
+    pub fn piece_hashes(&self) -> Vec<[u8; 20]> {
+        self.info
+            .pieces
+            .chunks(20)
+            .map(|chunk| {
+                let mut array = [0u8; 20];
+                array.copy_from_slice(chunk);
+                array
+            })
+            .collect()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.info.name
+    }
 }
 
 #[cfg(test)]
@@ -117,7 +146,7 @@ mod tests {
     use crate::DEBIAN_FILE;
 
     #[test]
-    fn test_torrent() {
+    fn test_torrent_announce() {
         let mut file = std::fs::File::open(DEBIAN_FILE).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
