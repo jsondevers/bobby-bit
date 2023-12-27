@@ -243,8 +243,8 @@ impl UdpTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::DEBIAN_FILE;
+    // use super::*;
+    // use crate::DEBIAN_FILE;
 
     // TODO: find torrent file with announce list that contains UDP trackers
 }

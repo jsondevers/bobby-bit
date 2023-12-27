@@ -1,4 +1,4 @@
-use crate::peer::bitfield::BitField;
+use crate::bitfield::BitField;
 use crate::peer::handshake::Handshake;
 use crate::peer::message::Message;
 use mio::net::TcpStream;
