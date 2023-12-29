@@ -49,7 +49,13 @@ pub struct AnnounceResponse {
     interval: u32,
     leechers: u32,
     seeders: u32,
-    peers: Vec<Peer>,
+    peers: Vec<SocketAddr>,
+}
+
+impl AnnounceResponse {
+    pub fn peers(&self) -> Vec<SocketAddr> {
+        self.peers.clone()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,13 +80,6 @@ struct Error {
     action: u32,
     transaction_id: u32,
     message: String,
-}
-
-/// peer struct for UDP tracker, note that peer id is not included as it is with the HTTP tracker
-#[derive(Debug, Serialize, Deserialize)]
-struct Peer {
-    ip_address: i32,
-    port: i16,
 }
 
 #[derive(Debug)]

@@ -20,3 +20,4 @@ sha1 = "0.10.6"                                             # SHA-1 hashing
 byteorder = "1.5.0"                                         # byte order conversions
 base64 = "0.21.5"                                           # base64 encoding
 httparse = "1.8.0"                                          # parsing HTTP
+clap = { version = "4.4.11", features = ["derive"] }        # command line arguments

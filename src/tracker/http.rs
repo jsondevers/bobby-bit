@@ -330,6 +330,9 @@ impl HttpTracker {
             .next()
             .ok_or(anyhow!("Invalid address"))?;
 
+        println!("announce url: {}", announce_url);
+        log::debug!("announce url: {}", announce_url);
+
         let mut stream = TcpStream::connect(addr)?;
 
         // TODO: handle other query parameters
@@ -348,6 +351,9 @@ impl HttpTracker {
             host
         );
 
+        println!("announce request: {}", request);
+        log::debug!("announce request: {}", request);
+
         let token = Token(1);
         self.poll
             .registry()
@@ -355,7 +361,7 @@ impl HttpTracker {
 
         loop {
             self.poll
-                .poll(&mut self.events, Some(Duration::from_secs(5)))?;
+                .poll(&mut self.events, Some(Duration::from_secs(3)))?;
             for event in self.events.iter() {
                 match event.token() {
                     token if token == token => {
@@ -364,6 +370,10 @@ impl HttpTracker {
                         }
                         if event.is_writable() {
                             stream.write_all(request.as_bytes())?;
+
+                            println!("sent request to tracker");
+                            log::info!("sent request to tracker");
+
                             self.poll.registry().reregister(
                                 &mut stream,
                                 token,
@@ -371,6 +381,9 @@ impl HttpTracker {
                             )?;
                         }
                         if event.is_readable() {
+                            println!("reading response from tracker");
+                            log::info!("reading response from tracker");
+
                             let mut buf = Vec::new();
                             stream.read_to_end(&mut buf)?;
                             let response = parse_announce_response(&buf)?;
@@ -512,7 +525,7 @@ mod tests {
     fn test_announce() {
         let torrent = Torrent::from_file(DEBIAN_FILE).unwrap();
         let peer_id = generate_peer_id();
-        let port = 6881;
+        let port = 6969;
         let compact = Some(1);
 
         let mut client: HttpTracker = HttpTracker::new().unwrap();
@@ -525,9 +538,5 @@ mod tests {
     #[test]
     fn test_scrape() {
         // TODO: fix this test
-        // let torrent = Torrent::from_file(DEBIAN_FILE).unwrap();
-        // let mut client = HttpTracker::new().unwrap();
-        // let response = client.scrape(&torrent).unwrap();
-        // println!("{:?}", response);
     }
 }

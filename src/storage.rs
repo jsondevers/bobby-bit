@@ -51,8 +51,6 @@ impl Downloader {
     }
 
     pub fn download_piece(&self, piece_index: usize) {
-        // Simulated download logic
-        // Replace with real network-based download logic
         let piece_length = self.torrent.piece_length() as usize;
         let block_data = vec![0; BLOCK_LEN]; // Placeholder for block data
         let num_blocks = (piece_length + BLOCK_LEN - 1) / BLOCK_LEN;

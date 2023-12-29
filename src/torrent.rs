@@ -153,6 +153,12 @@ impl Torrent {
         }
         addrs
     }
+
+    pub fn has_udp_trackers(&self) -> bool {
+        self.announce_list()
+            .iter()
+            .any(|addr| addr.to_string().contains("udp"))
+    }
 }
 
 #[cfg(test)]

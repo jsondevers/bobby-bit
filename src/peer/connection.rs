@@ -8,10 +8,13 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 pub struct Connection {
+    /// this id can be changed for different peers to avoid being blacklisted
+    pub my_id: [u8; 20],
     pub stream: TcpStream,
     pub poll: Poll,
     pub token: Token,
     pub addr: SocketAddr,
+    /// the peer id of the remote peer (recv in handshake)
     pub peer_id: [u8; 20],
     pub info_hash: [u8; 20],
     pub am_choking: bool,
@@ -47,7 +50,7 @@ impl Connection {
     pub fn new(
         peer: SocketAddr,
         info_hash: [u8; 20],
-        peer_id: [u8; 20],
+        my_id: [u8; 20],
     ) -> Result<Connection, Error> {
         let poll = Poll::new()?;
         let token = Token(0);
@@ -63,6 +66,7 @@ impl Connection {
 
         // connect to peer
         let mut stream = TcpStream::connect(peer)?;
+        let peer_id = [0; 20]; // will be set after handshake
 
         log::info!("Connected to {:?}", peer);
 
@@ -71,6 +75,7 @@ impl Connection {
             .register(&mut stream, token, Interest::READABLE | Interest::WRITABLE)?;
         let mut events = Events::with_capacity(1024);
         let mut connection = Connection {
+            my_id,
             stream,
             poll,
             token,
@@ -89,6 +94,8 @@ impl Connection {
 
         let handshake = Handshake::new(info_hash, peer_id);
         let timeout = Duration::from_secs(3); // Adjust the timeout as needed
+
+        // TODO: ensure this doesn't block forever
 
         loop {
             connection.poll.poll(&mut events, Some(timeout))?;
@@ -123,6 +130,10 @@ impl Connection {
                                     connection.token,
                                     Interest::READABLE | Interest::WRITABLE,
                                 )?;
+
+                                // set peer id
+                                connection.peer_id = handshake.peer_id;
+
                                 return Ok(connection);
                             } else {
                                 log::error!("Handshake check failed");
@@ -184,7 +195,7 @@ impl Connection {
     }
 }
 
-// todo: maybe implement Drop trait
+// TODO: maybe implement Drop trait
 
 /// spawns a thread that will create a connection to the peer and will be managed by the main thread using a channel
 pub fn spawn_peer(peer: SocketAddr, info_hash: [u8; 20], peer_id: [u8; 20]) -> Result<(), Error> {
@@ -200,33 +211,29 @@ pub fn spawn_peer(peer: SocketAddr, info_hash: [u8; 20], peer_id: [u8; 20]) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{generate_peer_id, get_peers};
+    use crate::torrent::Torrent;
+    use crate::utils::{find_peers, generate_peer_id};
     use crate::DEBIAN_FILE;
+
+    const PORT: u16 = 6969;
 
     #[test]
     fn test_peer_connect() {
-        let peers = get_peers(&DEBIAN_FILE).unwrap();
-        let torrent = crate::torrent::Torrent::from_file(DEBIAN_FILE).unwrap();
-        let info_hash = torrent.info_hash();
-        // try connect to all peers
-        for peer in peers {
-            let peer_id = generate_peer_id();
-            let _connection = Connection::new(peer, info_hash, peer_id).unwrap();
-            // println!("Connection: {:?}", connection);
-        }
-    }
+        // generate a random peer id
+        let peer_id = generate_peer_id();
+        // read the torrent file
+        let torrent: Torrent = Torrent::from_file(DEBIAN_FILE).unwrap();
 
-    #[test]
-    fn test_peer_send() {
-        let peers = get_peers(&DEBIAN_FILE).unwrap();
-        let torrent = crate::torrent::Torrent::from_file(DEBIAN_FILE).unwrap();
-        let info_hash = torrent.info_hash();
+        let peers = find_peers(&torrent, peer_id, PORT);
         // try connect to all peers
         for peer in peers {
             let peer_id = generate_peer_id();
-            let mut connection = Connection::new(peer, info_hash, peer_id).unwrap();
-            let message = Message::KeepAlive;
-            connection.send(message).unwrap();
+            // try to connect, but not all peers will accept the connection
+            let connection = Connection::new(peer, torrent.info_hash(), peer_id);
+            if let Ok(mut connection) = connection {
+                log::info!("Connection: {:?}", connection);
+                connection.close().unwrap();
+            }
         }
     }
 }
