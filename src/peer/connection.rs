@@ -1,6 +1,5 @@
 use crate::bitfield::BitField;
-use crate::peer::handshake::Handshake;
-use crate::peer::message::Message;
+use crate::peer::message::{Handshake, Message};
 use mio::net::TcpStream;
 use mio::{Events, Interest, Poll, Token};
 use std::io::{Error, ErrorKind, Read, Write};
@@ -17,6 +16,8 @@ pub struct Connection {
     /// the peer id of the remote peer (recv in handshake)
     pub peer_id: [u8; 20],
     pub info_hash: [u8; 20],
+
+    // peer state
     pub am_choking: bool,
     pub am_interested: bool,
     pub peer_choking: bool,
@@ -193,21 +194,14 @@ impl Connection {
     pub fn is_interested(&self) -> bool {
         self.peer_interested
     }
+
+    pub fn has_piece(&self, piece_index: usize) -> bool {
+        self.bitfield.has_piece(piece_index)
+    }
 }
 
 // TODO: maybe implement Drop trait
 
-/// spawns a thread that will create a connection to the peer and will be managed by the main thread using a channel
-pub fn spawn_peer(peer: SocketAddr, info_hash: [u8; 20], peer_id: [u8; 20]) -> Result<(), Error> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let connection = Connection::new(peer, info_hash, peer_id).unwrap();
-        tx.send(connection).unwrap();
-    });
-    let connection = rx.recv().unwrap();
-    log::info!("Connection: {:?}", connection);
-    Ok(())
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,22 +212,22 @@ mod tests {
     const PORT: u16 = 6969;
 
     #[test]
-    fn test_peer_connect() {
-        // generate a random peer id
+    fn test_connection() {
+        let torrent = Torrent::from_file(DEBIAN_FILE).unwrap();
         let peer_id = generate_peer_id();
-        // read the torrent file
-        let torrent: Torrent = Torrent::from_file(DEBIAN_FILE).unwrap();
-
         let peers = find_peers(&torrent, peer_id, PORT);
-        // try connect to all peers
-        for peer in peers {
-            let peer_id = generate_peer_id();
-            // try to connect, but not all peers will accept the connection
-            let connection = Connection::new(peer, torrent.info_hash(), peer_id);
-            if let Ok(mut connection) = connection {
-                log::info!("Connection: {:?}", connection);
-                connection.close().unwrap();
-            }
-        }
+        let peer = peers[0];
+        let info_hash = torrent.info_hash();
+
+        let mut connection = Connection::new(peer, info_hash, peer_id).unwrap();
+        log::info!("Connection: {:?}", connection);
+
+        let message = Message::Interested;
+        connection.send(message).unwrap();
+
+        let message = connection.recv().unwrap();
+        log::info!("Received message: {:?}", message);
+
+        connection.close().unwrap();
     }
 }
